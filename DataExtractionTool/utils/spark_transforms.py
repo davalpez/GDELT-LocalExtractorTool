@@ -3,7 +3,9 @@ from pyspark.sql import DataFrame
 import pyspark.sql.functions as F
 from datetime import date
 import logging
-from config import *
+import os
+import json
+import config
 from pyspark.sql import SparkSession
 from pyspark.sql.types import FloatType
 from datetime import date
@@ -20,6 +22,41 @@ logger = logging.getLogger(__name__)
 ##       Dataframe creation  functions         ##
 ##                                             ##
 #################################################
+
+def check_historical_files_size(
+    start_date: date | str,
+    end_date: date | str,
+    dataframe: DataFrame
+) -> None:
+    """Prints the total file size for a given date range.
+
+    Args:
+        start_date: The first date in the range (inclusive).
+        end_date: The last date in the range (inclusive).
+        dataframe: A DataFrame with "Date" and "FileSizeMB" columns.
+
+    Raises:
+        ValueError: If either the start_date or end_date does not exist
+            in the DataFrame.
+    """
+    # Validate that the start and end dates exist in the dataset
+    start_exists = dataframe.filter(F.col("Date") == start_date).count()
+    end_exists = dataframe.filter(F.col("Date") == end_date).count()
+
+    if not start_exists or not end_exists:
+        raise ValueError(
+            f"A boundary date was not found. Start exists: {bool(start_exists)}, "
+            f"End exists: {bool(end_exists)}"
+        )
+
+    # Filter the DataFrame and calculate the total size
+    date_filtered_df = dataframe.filter(F.col("Date").between(start_date, end_date))
+    total_size_agg = date_filtered_df.agg(F.sum("FileSizeMB")).collect()[0][0]
+
+    # If the range is valid but contains no files, the sum will be None
+    total_size = total_size_agg if total_size_agg is not None else 0
+
+    print(f"Total MB in range {start_date} to {end_date}: {total_size:.2f} MB")
 
 
 def prepare_gdelt_download_df(
@@ -345,3 +382,197 @@ def merge_parquets(spark: SparkSession, origin_dir: str, destination_dir: str, c
     df.coalesce(coalesce_to).write.mode("overwrite").parquet(destination_dir)
     
     logger.info(f"Successfully merged Parquet file(s) written to '{destination_dir}'.")
+
+
+
+    ######## In trial ##########
+
+def read_unzipped_csv_to_df(
+    spark: SparkSession, directory_path: str, headers: List[str]
+) -> DataFrame:
+    """
+        Reads all CSV files from a directory directly into a Spark DataFrame
+        and applies the provided list of headers as column names.
+
+        This function is the direct, scalable replacement for the older pattern of
+        reading with Pandas to apply headers.
+
+        Args:
+            spark: The active SparkSession.
+            directory_path: The path to the directory containing the .CSV files.
+            headers: A list of strings to use as the column names for the DataFrame.
+
+        Returns:
+            A Spark DataFrame with the combined data from all CSVs and the
+            correct column headers applied.
+    """
+    logger.info(f"Reading all .CSV files from directory: {directory_path}")
+    
+    # Construct a glob path to read all files ending in .CSV
+
+    try:
+        all_files = os.listdir(directory_path)
+        csv_files = [
+            f for f in all_files if f.lower().endswith('.csv')
+        ]
+        
+        # 2. Create a list of full, absolute paths for Spark.
+        #    Using absolute paths is always safer.
+        absolute_csv_paths = [
+            os.path.join(os.path.abspath(directory_path), f) for f in csv_files
+        ]
+
+        if not absolute_csv_paths:
+            logger.warning(f"No .CSV files found in directory: {directory_path}")
+            # Return an empty DataFrame with the correct schema structure
+            return spark.createDataFrame([], schema=spark.createDataFrame([], headers).schema)
+
+    except FileNotFoundError:
+        logger.error(f"Directory not found when trying to list CSV files: {directory_path}")
+        return spark.createDataFrame([], schema=spark.createDataFrame([], headers).schema)
+    
+    logger.info(f"Found {len(absolute_csv_paths)} CSV files to load.")
+    # -------------------------------
+    
+    # Step 1: Read the data using Spark's native reader.
+    # The columns will be named _c0, _c1, _c2, etc. at this stage.
+    raw_df_with_default_names = (
+        spark.read.format("csv")
+        .option("sep", "\t")
+        .option("header", "false")
+        .load(absolute_csv_paths)
+    )
+
+    # Step 2: Apply the provided headers.
+    # The toDF() method is a highly efficient way to rename all columns at once.
+    num_columns_read = len(raw_df_with_default_names.columns)
+    
+    # Handle cases where the number of headers might not match the data.
+    if num_columns_read != len(headers):
+        logger.warning(
+            f"Mismatch between number of columns in data ({num_columns_read}) "
+            f"and number of headers provided ({len(headers)}). "
+            "Truncating header list to match data."
+        )
+        effective_headers = headers[:num_columns_read]
+    else:
+        effective_headers = headers
+
+    # Rename the columns from _c0, _c1, ... to your meaningful names.
+    df_with_headers = raw_df_with_default_names.toDF(*effective_headers)
+
+    logger.info(
+        f"Successfully loaded {df_with_headers.count()} records and applied "
+        f"{len(df_with_headers.columns)} headers."
+    )
+    return df_with_headers
+    
+def transform_and_append_parquet(
+    input_df: DataFrame,
+    output_path: str,
+    columns_to_keep: List[str],
+    cameo_map: Column,
+    filter_bool:bool,
+    filter_terms: List[str],
+    filter_columns: List[str]
+) -> None:
+        """
+        Applies a full transformation pipeline to a raw DataFrame and appends it to Parquet.
+
+
+        Args:
+            raw_df: The input DataFrame, fresh from the CSV reader.
+            output_path: The destination path for the final Parquet file.
+            columns_to_keep: A list of final columns to select.
+            cameo_map: A Spark MapType column for CAMEO enrichment.
+            filter_terms: A list of terms to filter the data by.
+            filter_columns: A list of columns to search for the filter terms.
+        """
+        logger.info(f"Starting full transformation pipeline...")
+
+        # --- Transformation Step 1: Final Column Selection ---
+        
+        filter_df = select_columns(input_df, columns_to_keep)
+
+        # --- Transformation Step 2: Column reduction Filtering ---
+        if filter_bool:
+            filter_df = filter_by_terms_in_columns(
+            filter_df,
+            terms=filter_terms,
+            columns_to_search=filter_columns
+        )
+
+        # --- Transformation Step 3: Enrichment ---
+        
+        load_and_create_cameo_map(cameo_map)
+        final_df = add_cameo_action_columns(filter_df, cameo_map)
+
+        # --- I/O Step: Writing ---
+        logger.info(f"Writing transformed data to Parquet at: {output_path}")
+        (
+            final_df.write
+            .mode("append")
+            .parquet(output_path)
+        )
+        logger.info("Successfully appended chunk to Parquet file.")
+
+
+def load_and_create_cameo_map(cameo_json_path: str) -> Column:
+    """Loads a CAMEO dictionary from a JSON file and creates a Spark MapType column.
+
+    Args:
+        cameo_json_path: The file path to the CAMEO JSON dictionary.
+
+    Returns:
+        A Spark Column of MapType(StringType(), StringType())
+    Raises:
+        FileNotFoundError: If the cameo_json_path does not exist.
+        json.JSONDecodeError: If the file is not a valid JSON.
+    """
+    logger.info(f"Loading CAMEO dictionary from: {cameo_json_path}")
+    try:
+        with open(cameo_json_path, 'r', encoding='utf-8') as f:
+            cameo_dict: Dict[str, str] = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        logger.error(f"Failed to load or parse CAMEO JSON file: {e}")
+        raise
+
+    map_items = [item for pair in cameo_dict.items() for item in pair]
+    
+    cameo_map_col = F.create_map(*[F.lit(item) for item in map_items])
+    
+    logger.info("Successfully created Spark CAMEO map column.")
+    return cameo_map_col
+
+def merge_parquets(
+    spark: SparkSession,
+    origin_dir: str,
+    destination_dir: str,
+    num_output_files: int = 1
+) -> None:
+    """Reads a partitioned Parquet dataset and writes it to a new location
+    with a specified number of files.
+
+    Args:
+        spark: The active SparkSession.
+        origin_dir: The source directory containing the partitioned Parquet dataset.
+        destination_dir: The target directory to write the merged Parquet file(s).
+        num_output_files: The desired number of output files. Use 1 for a single
+                          file, or a larger number for bigger datasets.
+    """
+    logger.info(f"Merging Parquet files from '{origin_dir}' into '{destination_dir}'.")
+    try:
+        df = spark.read.parquet(origin_dir)
+        
+        logger.info(f"Total rows to merge: {df.count()}")
+        
+        # .coalesce() is efficient for reducing partitions.
+        df.coalesce(num_output_files).write.mode("overwrite").parquet(destination_dir)
+        
+        logger.info(
+            f"Successfully merged data into {num_output_files} file(s) "
+            f"at '{destination_dir}'."
+        )
+    except Exception as e:
+        logger.error(f"Failed to merge Parquet files: {e}")
+        raise

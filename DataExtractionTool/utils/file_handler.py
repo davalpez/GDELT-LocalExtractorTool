@@ -6,6 +6,7 @@ import config
 from pyspark.sql import functions as F
 from pyspark.sql import DataFrame
 from datetime import date
+import shutil
 
 logger = logging.getLogger(__name__)
 
@@ -15,78 +16,13 @@ logger = logging.getLogger(__name__)
 ##                                             ##
 #################################################
 
-def retrieve_list_available_files(url: str = config.URL) -> requests.Response:
-    '''
-    """Retrieves a list of available files from a given URL.
 
-    Args:
-        url (str): The URL to request data from
 
-    Returns:
-        requests.Response (str): File list
-    '''
-
-    # We make a request and try to get the information from the URL
-    response = requests.get(config.URL)
-    if response.status_code != 200:
-        print("Failed to retrieve data.")
-        exit()
-
-    # The data is separated by tabs, so we separate it and create a PySpark Dataframe
-
-    try:
-        response = requests.get(config.URL)
-        # This will automatically raise an HTTPError for non-2xx status codes
-        response.raise_for_status()
-        logger.info(f"Successfully retrieved data from {config.URL}")
-
-        return response
-
-    except requests.exceptions.HTTPError as http_err:
-        # Specific handling for HTTP errors 
-        logger.error(f"HTTP error occurred: {http_err} - Status Code: {response.status_code}")
-        # Re-raising the exception allows the calling code to handle it
-        raise
-        
-    except requests.exceptions.RequestException as req_err:
-        # Handling request-related errors r
-        logger.critical(f"A critical request error occurred: {req_err}")
-        raise
-
-def check_historical_files_size(
-    start_date: date | str,
-    end_date: date | str,
-    dataframe: DataFrame
-) -> None:
-    """Prints the total file size for a given date range.
-
-    Args:
-        start_date: The first date in the range (inclusive).
-        end_date: The last date in the range (inclusive).
-        dataframe: A DataFrame with "Date" and "FileSizeMB" columns.
-
-    Raises:
-        ValueError: If either the start_date or end_date does not exist
-            in the DataFrame.
-    """
-    # Validate that the start and end dates exist in the dataset
-    start_exists = dataframe.filter(F.col("Date") == start_date).count()
-    end_exists = dataframe.filter(F.col("Date") == end_date).count()
-
-    if not start_exists or not end_exists:
-        raise ValueError(
-            f"A boundary date was not found. Start exists: {bool(start_exists)}, "
-            f"End exists: {bool(end_exists)}"
-        )
-
-    # Filter the DataFrame and calculate the total size
-    date_filtered_df = dataframe.filter(F.col("Date").between(start_date, end_date))
-    total_size_agg = date_filtered_df.agg(F.sum("FileSizeMB")).collect()[0][0]
-
-    # If the range is valid but contains no files, the sum will be None
-    total_size = total_size_agg if total_size_agg is not None else 0
-
-    print(f"Total MB in range {start_date} to {end_date}: {total_size:.2f}")
+#################################################
+##                                             ##
+##           Data Cleaning Functions           ##
+##                                             ##
+#################################################
 
 def unzip_all_and_delete(download_dir: str) -> None:
     """Unzips all .zip files in a directory and deletes the archives.
@@ -120,3 +56,87 @@ def unzip_all_and_delete(download_dir: str) -> None:
 
     logger.info("-----------------")
     logger.info("Files sucessfully unzipped.")
+
+
+def clear_directory(directory_path: str) -> None:
+    """Ensures a directory is empty by deleting and recreating it.
+
+    Args:
+        directory_path: The path to the directory to clear.
+    """
+    logger.info(f"Clearing all contents from directory: {directory_path}")
+    try:
+        # Check if the path exists and is a directory
+        if os.path.isdir(directory_path):
+            # shutil.rmtree() is the Python equivalent of 'rm -rf'
+            shutil.rmtree(directory_path)
+            logger.debug(f"Removed existing directory tree: {directory_path}")
+        
+        # os.makedirs() will create the directory
+        os.makedirs(directory_path, exist_ok=True)
+        logger.info(f"Successfully cleared and recreated directory: {directory_path}")
+    
+    except OSError as e:
+        logger.error(f"An OS error occurred while trying to clear directory {directory_path}: {e}")
+        raise
+
+def delete_files_with_extension(directory_path: str, extension: str) -> None:
+    """Deletes all files with a specific extension from a directory.
+
+    This function is a crucial cleanup step for pipelines, used to remove
+    intermediate files (like .csv) after their data has been permanently
+    stored in a different format (like .parquet).
+
+    Args:
+        directory_path: The path to the directory to clean up.
+        extension: The file extension to delete (e.g., '.csv', '.txt').
+                   The search is case-insensitive.
+    """
+    logger.info(f"Searching for '{extension}' files to delete in '{directory_path}'...")
+    
+    # Safety check: Ensure the path is a valid directory before proceeding.
+    if not os.path.isdir(directory_path):
+        logger.error(f"Cleanup failed. Directory not found: {directory_path}")
+        return
+
+    deleted_count = 0
+    # Iterate through every item in the specified directory.
+    for filename in os.listdir(directory_path):
+        # Use .lower() to make the check case-insensitive (handles .csv, .CSV, etc.).
+        if filename.lower().endswith(extension.lower()):
+            file_path = os.path.join(directory_path, filename)
+            try:
+                # Attempt to delete the file.
+                os.remove(file_path)
+                logger.debug(f"Deleted intermediate file: {file_path}")
+                deleted_count += 1
+            except OSError as e:
+                # Log an error if the file couldn't be deleted (e.g., permissions issue).
+                logger.error(f"Error deleting file {file_path}: {e}")
+    
+    logger.info(
+        f"Cleanup complete. Deleted {deleted_count} '{extension}' files "
+        f"from the directory."
+    )
+
+def delete_directory_tree(directory_path: str) -> None:
+    """Recursively deletes a directory and all of its contents.
+
+    Args:
+        directory_path: The path to the directory to be deleted.
+    """
+    logger.info(f"Attempting to delete directory tree: {directory_path}")
+    try:
+        if os.path.isdir(directory_path):
+            shutil.rmtree(directory_path)
+            logger.info(f"Successfully deleted directory: {directory_path}")
+        else:
+            logger.warning(
+                f"Skipping deletion. Directory not found: {directory_path}"
+            )
+    except OSError as e:
+        logger.error(
+            f"An OS error occurred while trying to delete directory "
+            f"{directory_path}: {e}"
+        )
+        raise

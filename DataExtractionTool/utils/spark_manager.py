@@ -18,23 +18,15 @@ def initialize_spark_session()-> SparkSession:
     Returns :
     spark : spark session.
     '''
-    spark = SparkSession.builder \
-    .master("local") \
-    .appName(config.APP_NAME) \
-    .enableHiveSupport() \
-    .getOrCreate()
-
-    dependency_zip = "dependencies.zip"
-    zip_path = os.path.join(os.getcwd(), dependency_zip)
-
-    if os.path.exists(zip_path):
-        # Use spark.sparkContext, which is the entry point for the underlying cluster manager
-        spark.sparkContext.addPyFile(zip_path)
-        logger.info(f"Successfully added '{dependency_zip}' to Spark context for distribution.")
-    else:
-        logger.warning(
-            f"Dependency file '{dependency_zip}' not found at '{zip_path}'. "
-            "UDFs may fail if running on a multi-node cluster."
-        )
-
+    logger.info(f"Initializing SparkSession.")
+    
+    spark = (
+        SparkSession.builder
+        .appName(config.APP_NAME)
+        .master(config.MASTER_URL)
+        .enableHiveSupport()  # Optional: can be removed if not interacting with Hive tables.
+        .getOrCreate()
+    )
+    
+    logger.info("SparkSession initialized successfully.")
     return spark

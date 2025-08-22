@@ -2,10 +2,6 @@ import os
 import requests
 import logging
 import config
-from pyspark.sql.types import StringType
-from pyspark.sql import functions as F
-from pyspark.sql import DataFrame
-from datetime import date
 
 logger = logging.getLogger(__name__)
 

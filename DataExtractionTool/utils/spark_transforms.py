@@ -7,7 +7,7 @@ import os
 import json
 import config
 from pyspark.sql import SparkSession
-from pyspark.sql.types import FloatType
+from pyspark.sql.types import FloatType,IntegerType,DoubleType
 from datetime import date
 from functools import reduce
 from typing import List, Dict
@@ -383,10 +383,6 @@ def merge_parquets(spark: SparkSession, origin_dir: str, destination_dir: str, c
     
     logger.info(f"Successfully merged Parquet file(s) written to '{destination_dir}'.")
 
-
-
-    ######## In trial ##########
-
 def read_unzipped_csv_to_df(
     spark: SparkSession, directory_path: str, headers: List[str]
 ) -> DataFrame:
@@ -394,37 +390,28 @@ def read_unzipped_csv_to_df(
         Reads all CSV files from a directory directly into a Spark DataFrame
         and applies the provided list of headers as column names.
 
-        This function is the direct, scalable replacement for the older pattern of
-        reading with Pandas to apply headers.
-
         Args:
             spark: The active SparkSession.
             directory_path: The path to the directory containing the .CSV files.
             headers: A list of strings to use as the column names for the DataFrame.
 
         Returns:
-            A Spark DataFrame with the combined data from all CSVs and the
-            correct column headers applied.
+            df_with_headers : Spark Dataframe with headers
     """
     logger.info(f"Reading all .CSV files from directory: {directory_path}")
     
-    # Construct a glob path to read all files ending in .CSV
 
     try:
         all_files = os.listdir(directory_path)
         csv_files = [
             f for f in all_files if f.lower().endswith('.csv')
         ]
-        
-        # 2. Create a list of full, absolute paths for Spark.
-        #    Using absolute paths is always safer.
         absolute_csv_paths = [
             os.path.join(os.path.abspath(directory_path), f) for f in csv_files
         ]
 
         if not absolute_csv_paths:
             logger.warning(f"No .CSV files found in directory: {directory_path}")
-            # Return an empty DataFrame with the correct schema structure
             return spark.createDataFrame([], schema=spark.createDataFrame([], headers).schema)
 
     except FileNotFoundError:
@@ -432,9 +419,7 @@ def read_unzipped_csv_to_df(
         return spark.createDataFrame([], schema=spark.createDataFrame([], headers).schema)
     
     logger.info(f"Found {len(absolute_csv_paths)} CSV files to load.")
-    # -------------------------------
     
-    # Step 1: Read the data using Spark's native reader.
     # The columns will be named _c0, _c1, _c2, etc. at this stage.
     raw_df_with_default_names = (
         spark.read.format("csv")
@@ -443,11 +428,7 @@ def read_unzipped_csv_to_df(
         .load(absolute_csv_paths)
     )
 
-    # Step 2: Apply the provided headers.
-    # The toDF() method is a highly efficient way to rename all columns at once.
     num_columns_read = len(raw_df_with_default_names.columns)
-    
-    # Handle cases where the number of headers might not match the data.
     if num_columns_read != len(headers):
         logger.warning(
             f"Mismatch between number of columns in data ({num_columns_read}) "
@@ -457,8 +438,6 @@ def read_unzipped_csv_to_df(
         effective_headers = headers[:num_columns_read]
     else:
         effective_headers = headers
-
-    # Rename the columns from _c0, _c1, ... to your meaningful names.
     df_with_headers = raw_df_with_default_names.toDF(*effective_headers)
 
     logger.info(
@@ -466,15 +445,25 @@ def read_unzipped_csv_to_df(
         f"{len(df_with_headers.columns)} headers."
     )
     return df_with_headers
-    
+
+#################################################
+##                                             ##
+##       Dataframe pipeline function           ##
+##                                             ##
+#################################################
+
+
 def transform_and_append_parquet(
+    spark: SparkSession,
     input_df: DataFrame,
     output_path: str,
     columns_to_keep: List[str],
-    cameo_map: Column,
+    cameo_map: str,
     filter_bool:bool,
     filter_terms: List[str],
-    filter_columns: List[str]
+    filter_columns: List[str],
+    gdelt_domain_lookup_path: str,
+    manual_domain_lookup_path: str
 ) -> None:
         """
         Applies a full transformation pipeline to a raw DataFrame and appends it to Parquet.
@@ -489,25 +478,22 @@ def transform_and_append_parquet(
             filter_columns: A list of columns to search for the filter terms.
         """
         logger.info(f"Starting full transformation pipeline...")
-
-        # --- Transformation Step 1: Final Column Selection ---
-        
         filter_df = select_columns(input_df, columns_to_keep)
-
-        # --- Transformation Step 2: Column reduction Filtering ---
         if filter_bool:
             filter_df = filter_by_terms_in_columns(
             filter_df,
             terms=filter_terms,
             columns_to_search=filter_columns
         )
-
-        # --- Transformation Step 3: Enrichment ---
-        
-        load_and_create_cameo_map(cameo_map)
-        final_df = add_cameo_action_columns(filter_df, cameo_map)
-
-        # --- I/O Step: Writing ---
+        domain_added_df = add_domain_and_country_news_source(
+            spark=spark,
+            df=filter_df,
+            gdelt_domain_lookup_path=gdelt_domain_lookup_path,
+            manual_domain_lookup_path=manual_domain_lookup_path
+            )
+        cameo_map_col = load_and_create_cameo_map(cameo_map)
+        final_df = add_cameo_action_columns(domain_added_df, cameo_map_col)
+        os.makedirs(output_path,exist_ok=True)
         logger.info(f"Writing transformed data to Parquet at: {output_path}")
         (
             final_df.write
@@ -576,3 +562,99 @@ def merge_parquets(
     except Exception as e:
         logger.error(f"Failed to merge Parquet files: {e}")
         raise
+
+def add_domain_and_country_news_source(
+    spark: SparkSession,
+    df: DataFrame,
+    gdelt_domain_lookup_path: str,
+    manual_domain_lookup_path: str
+) -> DataFrame:
+    """ Adds information relation to the url domain's country from the official guide + extra file used for the project.
+    Args:
+        spark: The active SparkSession.
+        df: The input DataFrame, must contain a 'SOURCEURL' column.
+        gdelt_domain_lookup_path: Path to the official GDELT domain CSV.
+        manual_domain_lookup_path: Path to the manually expanded domain CSV for some domains missing their related country.
+
+    Returns:
+        df_final: Dataframe with 'domain_name' and 'news_source_country'.
+    """
+    logger.info("Starting enrichment for domains and countries using a single combined lookup.")
+
+    df_with_domain = df.withColumn(
+        "domain_name",
+        F.regexp_replace(
+            F.regexp_extract(F.col("SOURCEURL"), r"https?://([^/]+)", 1),
+            r"^www\.",
+            ""
+        )
+    ).withColumn(
+        "domain_name",
+        F.regexp_replace(F.col("domain_name"), r":\d+$", "")  
+    )
+    logger.info("Loading and combining official and manual domain lookup tables.")
+
+    gdelt_lookup_df = (
+        spark.read.format("csv")
+        .option("sep", "\t") 
+        .option("header", "false")
+        .load(gdelt_domain_lookup_path)
+        .withColumnRenamed("_c0", "domain")
+        .withColumnRenamed("_c1", "country_code")
+        .withColumnRenamed("_c2", "country_name")
+        .select("domain", "country_name") 
+    )
+
+    manual_lookup_df = (
+        spark.read.option("header", True)
+        .csv(manual_domain_lookup_path)
+        .select("domain", "country_name") 
+    )
+    combined_lookup_df = gdelt_lookup_df.unionByName(manual_lookup_df).distinct()
+
+    logger.info("Joining with the combined lookup table.")
+    df_enriched = df_with_domain.join(
+        F.broadcast(combined_lookup_df),
+        df_with_domain.domain_name == combined_lookup_df.domain,
+        how="left"
+    ).drop(combined_lookup_df.domain)
+
+    logger.info("Consolidating lookup results and applying TLD fallback.")
+    tld = F.regexp_extract(F.col("domain_name"), r"\.([a-zA-Z]{2,})$", 1)
+    df_final = df_enriched.withColumn(
+        "news_source_country",
+        F.coalesce(
+            F.col("country_name"),
+            F.when(tld == 'ca', 'Canada')
+             .when(tld == 'uk', 'United Kingdom')
+             .when(tld == 'au', 'Australia')
+             .when(tld == 'de', 'Germany')
+             .when(tld == 'fr', 'France')
+             .when(tld == 'jp', 'Japan')
+             .when(tld == 'cn', 'China')
+             .when(tld == 'in', 'India')
+             .when(tld == 'ru', 'Russia')
+             .when(tld == 'es', 'Spain')
+             .when(tld == 'nz', 'New Zealand')
+             .when(F.col("domain_name").endswith(".gov"), 'United States')
+             .when(F.col("domain_name").endswith(".edu"), 'United States')
+             .when(F.col("domain_name").endswith(".mil"), 'United States')
+             .otherwise(None)  
+        )
+    ).fillna('Unknown', subset=['news_source_country']) 
+    return df_final.drop("country_name")
+
+
+
+# not in use yet
+def clean_gdelt_dataframe(df: DataFrame) -> DataFrame:
+    """Performs clenaing from null values
+
+    Args:
+        df: The raw input DataFrame of GDELT events.
+
+    Returns:
+        df : cleaned dataframe
+    """
+    
+    return None

@@ -1,5 +1,5 @@
 import argparse
-from config import *
+import config
 from datetime import date, datetime
 
 

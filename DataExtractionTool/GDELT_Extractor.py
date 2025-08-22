@@ -1,20 +1,22 @@
 import os
 import logging
-import config
 import argparse
-import requests
-from pyspark.sql import SparkSession,DataFrame
-from pyspark.sql.types import  StringType
-from pyspark.sql import functions as F
-from datetime import date,timedelta
+from datetime import date, timedelta
 
-from .utils import (
+
+import requests
+from pyspark.sql import SparkSession, DataFrame
+from pyspark.sql import functions as F
+from pyspark.sql.types import StringType
+
+import config
+from DataExtractionTool.utils import schema
+from DataExtractionTool.utils import (
     setup_logging,
     get_validated_date_input,
     get_confirmation_input,
     valid_date_type,
     initialize_spark_session,
-    download_file_task,
     download_file_task_orq,
     prepare_gdelt_download_df,
     prepare_fileList_dataframe,
@@ -62,7 +64,7 @@ def download_gdelt_files_distributed(
         output_dir (str): The path to a SHARED directory where files will be
             saved, accessible from all Spark workers.
     """
-    # Prepare the DataFrame with all necessary information
+    
     logger.info("Preparing DataFrame with download information...")
     prepared_df = prepare_gdelt_download_df(
         df, start_date, end_date, base_url, output_dir
@@ -84,8 +86,6 @@ def download_gdelt_files_distributed(
     logger.info("Triggering download action and collecting summary...")
     summary_df = result_df.groupBy("download_status").count()
     summary_rows = summary_df.collect()
-
-    # Log the final summary
     logger.info("--- Distributed Download Summary ---")
     if not summary_rows:
         logger.warning("No files were processed.")
@@ -106,11 +106,10 @@ def download_gdelt_files_distributed(
 def main() -> None:
     """Main entry point to parse arguments and run the GDELT data pipeline."""
 
-    # --- 1. ARGUMENT PARSING & INPUT (This is 95% the same, just uses logger) ---
     parser = argparse.ArgumentParser(
         description="A pipeline to download, process, and store GDELT event data."
     )
-    # ... (all your parser.add_argument calls are the same) ...
+
     parser.add_argument(
         "--chunk_size",
         type=int,
@@ -134,6 +133,13 @@ def main() -> None:
         default=0,
         help="Set to 1 to retrieve filtering from config file"
     )
+    parser.add_argument(
+        '-u', '--only_downloand_and_unzip',
+        action='store_const',
+        const=1,
+        default=0,
+        help="Set 1 to only download files and unzip them as csv, no filtering done."
+    )
 
     args = parser.parse_args()
 
@@ -151,13 +157,12 @@ def main() -> None:
         logger.error("The start date cannot be after the end date. Exiting.")
         return
 
-    # --- 2. THE NEW, CHUNK-BASED WORKFLOW ---
     spark = None
     try:
-        # --- A) INITIAL SETUP (Driver-side tasks) ---
+
         logger.info("Loading GDELT headers from Excel file...")
         gdelt_headers = load_headers_from_excel(
-            header_path=config.HEADERS_EXCEL_PATH,
+            header_path=str(config.HEADERS_EXCEL_PATH),
             sheet_name=config.HEADERS_SHEET_NAME
         )
 
@@ -169,7 +174,6 @@ def main() -> None:
             retrieve_list_available_files(config.URL).text, spark
         )
 
-        # User confirmation loop (still a great feature to have)
         confirmed = False
         while not confirmed:
             check_historical_files_size(start_date, end_date, master_df)
@@ -178,26 +182,38 @@ def main() -> None:
                 logger.info("User opted to select a new date range.")
                 start_date = get_validated_date_input("Enter new start date: ")
                 end_date = get_validated_date_input("Enter new end date: ")
-                # ... (add date validation)
 
-        # --- B) HAND OFF TO THE CHUNKING ORCHESTRATOR ---
-        # Instead of doing all the work here, we call our new pipeline function.
-        # This is the biggest change.
-        run_pipeline_in_chunks(
-            spark=spark,
-            start_date=start_date,
-            end_date=end_date,
-            master_df=master_df,
-            gdelt_headers=gdelt_headers,
-            chunk_size_days=args.chunk_size,
-            filter=args.filter
-        )
+            """         if args.only_downloand_and_unzip:
 
-        run_post_processing(
-            spark,
-            individual_parquet_folder=config.OUTPUT_PARQUET_PATH,
-            merged_parquet_folder= config.MERGED_PARQUET_PATH
+            logger.info("Running application in only donwloand and unzip mode.")
+            try:
+                df = extract_tool(start_date,end_date,spark)
+                os.makedirs(config.OUTPUT_DIR, exist_ok=True)
+                download_gdelt_files_distributed(start_date,end_date,df,base_url=config.GDELT_EVENTS_URL,
+                output_dir=config.OUTPUT_DIR)
+                unzip_all_and_delete(config.OUTPUT_DIR)
+
+            except Exception as e:
+                print(f"An error occurred: {e}") """
+
+
+            run_pipeline_in_chunks(
+                spark=spark,
+                start_date=start_date,
+                end_date=end_date,
+                master_df=master_df,
+                gdelt_headers=gdelt_headers,
+                chunk_size_days=args.chunk_size,
+                filter=args.filter,
+                only_download = args.only_downloand_and_unzip
             )
+
+            if not args.only_downloand_and_unzip :
+                run_post_processing(
+                spark,
+                individual_parquet_folder=str(config.OUTPUT_PARQUET_PATH),
+                merged_parquet_folder= str(config.MERGED_PARQUET_PATH)
+                )
 
     except Exception:
         logger.exception(
@@ -236,82 +252,18 @@ def run_post_processing(spark: SparkSession,individual_parquet_folder: str,merge
         logger.info("Post-processing and cleanup complete.")
         logger.info(
             "Final, merged data is available at: %s",
-            config.MERGED_PARQUET_PATH
+            str(config.MERGED_PARQUET_PATH)
         )
 
     except Exception as e:
         logger.error(
             "Post-processing failed. The intermediate chunked data has been "
             "kept for debugging. Please check the error below and the contents "
-            f"of '{config.OUTPUT_PARQUET_PATH}'."
+            f"of '{str(config.OUTPUT_PARQUET_PATH)}'."
         )
-        # Re-raising the exception stops the application gracefully and
-        # makes it clear that the final step did not complete.
+
         raise e
 
-
-
-def old_main() -> None:
-    """Parses arguments and runs the data extraction workflow.
-
-    This main entry point handles command-line arguments for start and end dates.
-    If arguments are not provided, it falls back to an interactive mode to
-    prompt the user for dates. It then proceeds with the main application logic.
-    """
-    parser = argparse.ArgumentParser(
-        description="Data Extractor to calculate historical file sizes."
-    )
-    parser.add_argument(
-        "-s", "--start_date",
-        type=valid_date_type,
-        help="The start date for the range in YYYY-MM-DD format."
-    )
-    parser.add_argument(
-        "-e", "--end_date",
-        type=valid_date_type,
-        help="The end date for the range in YYYY-MM-DD format."
-    )
-    parser.add_argument(
-        '-u', '--unzip',
-        action='store_const',
-        const=1,
-        default=0,
-        help="Set to 1 to activate the unzip functionality."
-    )
-    args = parser.parse_args()
-
-    # Determine whether to use arguments or interactive mode
-    if args.start_date and args.end_date:
-        start_date = args.start_date
-        end_date = args.end_date
-        print("Using dates provided from command-line arguments.")
-    else:
-        print("No command-line dates provided.")
-        start_date = get_validated_date_input("Enter the start date (YYYY-MM-DD): ")
-        end_date = get_validated_date_input("Enter the end date (YYYY-MM-DD): ")
-
-    # Validate the logical order of dates
-    if start_date > end_date:
-        print("Error: The start date cannot be after the end date.")
-        return
-
-    print(f"Date range selected: {start_date} to {end_date}")
-
-    try:
-        spark = initialize_spark_session()
-        df = extract_tool(start_date,end_date,spark)
-        os.makedirs(config.OUTPUT_DIR, exist_ok=True)
-        download_gdelt_files_distributed(start_date,end_date,df,base_url=config.GDELT_EVENTS_URL,
-        output_dir=config.OUTPUT_DIR)
-        if args.unzip :
-            unzip_all_and_delete(config.OUTPUT_DIR)
-
-    except Exception as e:
-        print(f"An error occurred: {e}")
-    finally:
-        spark.stop()
-    
-    
 
 def extract_tool(start_date:str,end_date:str,spark:SparkSession):
     
@@ -351,6 +303,7 @@ def run_pipeline_in_chunks(
     master_df: DataFrame,
     gdelt_headers: list,
     filter: bool,
+    only_download: bool,
     chunk_size_days: int = 10
     ) -> None:
     """
@@ -372,53 +325,53 @@ def run_pipeline_in_chunks(
         logger.info("=" * 60)
 
         # Ensure the download directory is empty before starting a new chunk.
-        clear_directory(config.OUTPUT_DIR)
+        clear_directory(str(config.OUTPUT_DIR))
 
         # STEP 1: DISTRIBUTED DOWNLOAD (using the function above)
         download_gdelt_files_distributed(
             start_date=current_start,
             end_date=chunk_end,
             df=master_df,
-            base_url=config.GDELT_EVENTS_URL,
-            output_dir=config.OUTPUT_DIR,
+            base_url=str(config.GDELT_EVENTS_URL),
+            output_dir=str(config.OUTPUT_DIR),
         )
 
         # STEP 2: UNZIP & DELETE ZIPS
-        unzip_all_and_delete(config.OUTPUT_DIR)
+        unzip_all_and_delete(str(config.OUTPUT_DIR))
 
-        # STEP 3: READ CSVS (now a distinct step)
-        raw_chunk_df = read_unzipped_csv_to_df(spark, config.OUTPUT_DIR, gdelt_headers )
-        
-        # STEP 4: TRANSFORM & APPEND TO PARQUET
-        # Check if the DataFrame is not empty to avoid processing empty chunks.
-        if not raw_chunk_df.head(1):
-            logger.warning(
-                f"No data found for chunk {current_start} to {chunk_end}. "
-                "Skipping transform and append."
-            )
-        else:
-            transform_and_append_parquet(input_df=raw_chunk_df,
-            output_path=config.OUTPUT_PARQUET_PATH,
-            columns_to_keep=config.FILTER_COLUMNS,
-            cameo_map=config.CAMEO_PATH,
-            filter_bool=filter,
-            filter_terms=config.FILTER_TERMS,
-            filter_columns=config.FILTER_COLUMNS,)
+        if not only_download:
+            # STEP 3: READ CSVS
+            raw_chunk_df = read_unzipped_csv_to_df(spark, str(config.OUTPUT_DIR), gdelt_headers )
+            
+            # STEP 4: TRANSFORM & APPEND TO PARQUET
+            if not raw_chunk_df.head(1):
+                logger.warning(
+                    f"No data found for chunk {current_start} to {chunk_end}. "
+                    "Skipping transform and append."
+                )
+            else:
+                transform_and_append_parquet(spark=spark,
+                input_df=raw_chunk_df,
+                output_path=str(config.OUTPUT_PARQUET_PATH),
+                columns_to_keep= schema.COLUMNS_TO_KEEP_SHORT,
+                cameo_map=str(config.CAMEO_PATH),
+                filter_bool=filter,
+                filter_terms=config.FILTER_TERMS,
+                filter_columns=config.FILTER_TERMS_COLUMNS,
+                gdelt_domain_lookup_path=str(config.GDELT_LOOKUP_PATH),
+                manual_domain_lookup_path=str(config.EXTENDED_LOOKUP_PATH))
+                logger.info(
+                    f"Successfully processed and saved chunk: {current_start} "
+                    f"to {chunk_end}"
+                )
+
+
+            delete_files_with_extension(str(config.OUTPUT_DIR), extension=".CSV") 
             logger.info(
-                f"Successfully processed and saved chunk: {current_start} "
-                f"to {chunk_end}"
+                "All chunks processed successfully. Final data is available at %s",
+                str(config.OUTPUT_PARQUET_PATH),
             )
-
-        # STEP 5: CLEANUP INTERMEDIATE CSVS
-        delete_files_with_extension(config.OUTPUT_DIR, extension=".CSV")
-        
-        # Prepare for the next iteration.
         current_start = chunk_end + timedelta(days=1)
-    
-    logger.info(
-        "All chunks processed successfully. Final data is available at %s",
-        config.OUTPUT_PARQUET_PATH,
-    )
 
 
 if __name__ == "__main__":

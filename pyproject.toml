@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=61.0"] # Or flit, poetry, hatchling, etc.
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "GDELTLocalExtractor" 
+version = "0.1.0" 
+description = "A tool for extracting GDELT data" 
+requires-python = ">=3.12" 
+
+dependencies = [
+    # Data Processing
+    "pyspark>=4.0.0,<5.0.0",
+    "pandas>=2.2,<3.0",
+
+    # Data Acquisition & Parsing
+    "gdelt>=0.1.14,<0.2",
+    "gdelttools>=0.7b2,<0.8",
+    "beautifulsoup4>=4.12,<5.0",
+    "lxml>=5.3,<6.0",
+    "requests>=2.32,<3.0",
+
+    # Database
+    "pymongo>=4.0,<5.0",
+
+    # Data Export & Plotting
+    "matplotlib>=3.9,<4.0",
+    "openpyxl>=3.1,<4.0",
+
+    # Utilities (confirm you use these directly)
+    "pytils>=0.4,<0.5",
+    "tools>=0.1.9,<0.2"
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",   
+]
+dev = [
+    "pytest>=8.0.0",
+    "ipykernel>=6.29,<7.0",
+    "debugpy>=1.8,<2.0",
+    "jupyterlab" # jupyterlab is a good meta-package to include
+]
+
+[tool.pytest.ini_options]
+pythonpath = [ "." ]
+
+[tool.setuptools.packages.find]
+exclude = ["DataExtractionTool/test*"] 

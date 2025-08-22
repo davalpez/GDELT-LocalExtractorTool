@@ -1,22 +1,10 @@
-import requests
 import logging
 import zipfile
 import os
-import config
 from pyspark.sql import functions as F
-from pyspark.sql import DataFrame
-from datetime import date
 import shutil
 
 logger = logging.getLogger(__name__)
-
-#################################################
-##                                             ##
-##           Data Retrieving Functions         ##
-##                                             ##
-#################################################
-
-
 
 #################################################
 ##                                             ##

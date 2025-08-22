@@ -183,20 +183,6 @@ def main() -> None:
                 start_date = get_validated_date_input("Enter new start date: ")
                 end_date = get_validated_date_input("Enter new end date: ")
 
-            """         if args.only_downloand_and_unzip:
-
-            logger.info("Running application in only donwloand and unzip mode.")
-            try:
-                df = extract_tool(start_date,end_date,spark)
-                os.makedirs(config.OUTPUT_DIR, exist_ok=True)
-                download_gdelt_files_distributed(start_date,end_date,df,base_url=config.GDELT_EVENTS_URL,
-                output_dir=config.OUTPUT_DIR)
-                unzip_all_and_delete(config.OUTPUT_DIR)
-
-            except Exception as e:
-                print(f"An error occurred: {e}") """
-
-
             run_pipeline_in_chunks(
                 spark=spark,
                 start_date=start_date,
@@ -263,38 +249,6 @@ def run_post_processing(spark: SparkSession,individual_parquet_folder: str,merge
         )
 
         raise e
-
-
-def extract_tool(start_date:str,end_date:str,spark:SparkSession):
-    
-    try:
-        file_list_response = retrieve_list_available_files(config.URL)  
-    except requests.exceptions.RequestException as e:
-        print(f"Failed to retrieve the file list. The application cannot continue.")
-        spark.stop()
-        exit()
-    try :
-
-        df = prepare_fileList_dataframe(file_list_response.text,spark)
-        check_historical_files_size(start_date,end_date,df)
-        confirmed = False
-        while not confirmed:
-            confirmed = get_confirmation_input("Do you want to proceed with downloading files? (yes/no): ")
-            if not confirmed:
-                print(" Select new date range : ")
-                start_date = get_validated_date_input("Enter the start date (YYYY-MM-DD): ")
-                end_date = get_validated_date_input("Enter the end date (YYYY-MM-DD): ")
-                if start_date > end_date:
-                    print("Error: The start date cannot be after the end date.")
-                    return
-                check_historical_files_size(start_date,end_date,df)
-                    
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        if df is not None:
-            print("DataFrame has some content, but an error occurred.")
-
-    return df
 
 def run_pipeline_in_chunks(
     spark: SparkSession,
@@ -372,7 +326,6 @@ def run_pipeline_in_chunks(
                 str(config.OUTPUT_PARQUET_PATH),
             )
         current_start = chunk_end + timedelta(days=1)
-
 
 if __name__ == "__main__":
     main()

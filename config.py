@@ -35,5 +35,5 @@ CAMEO_PATH = ASSETS_DIR / "cameo_dictionary"
 
 #--- Filter Columns to find terms ----
 
-FILTER_TERMS = ["palestine", "west bank", "israel","idf","gaza","PSE","GZS","WSB"]
+FILTER_TERMS = ["palestine", "west bank", "israel","idf","gaza","PSE","GZS","WSB"] # Example terms to study Israel-Palestine conflict throug news media
 FILTER_TERMS_COLUMNS = ['Actor1Name','Actor1Geo_FullName', 'Actor2Name','Actor2Geo_FullName','ActionGeo_FullName','ActionGeo_CountryCode','SOURCEURL']

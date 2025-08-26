@@ -5,7 +5,7 @@ from datetime import date
 import logging
 import os
 import json
-import config
+from typing import Union
 from pyspark.sql import SparkSession
 from pyspark.sql.types import FloatType,IntegerType,DoubleType
 from datetime import date
@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 #################################################
 
 def check_historical_files_size(
-    start_date: date | str,
-    end_date: date | str,
+    start_date: Union[date, str],
+    end_date: Union[date, str],
     dataframe: DataFrame
 ) -> None:
     """Prints the total file size for a given date range.

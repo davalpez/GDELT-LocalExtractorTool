@@ -4,6 +4,18 @@
 <!-- ![Python Version](https://img.shields.io/badge/python-3.9+-blue.svg) -->
 <!-- ![License](https://img.shields.io/badge/license-MIT-green.svg) -->
 
+<!-- Paste this entire block at the top of your README.md -->
+<!-- Remember to replace YOUR_GITHUB_USERNAME/YOUR_REPO_NAME -->
+
+<p align="center">
+<a href="https://github.com/davalpez/GDELT-LocalExtractorTool/actions/workflows/ci.yml">
+  <img src="https://github.com/davalpez/GDELT-LocalExtractorTool/actions/workflows/ci.yml/badge.svg" alt="Tests">
+</a>
+<a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
+<img src="https://img.shields.io/badge/Python-3.9+-blue.svg" alt="Python Version">
+<img src="https://img.shields.io/badge/PySpark-4.0.0-28b5eb?style=flat&logo=apachespark&logoColor=white" alt="PySpark">
+</p>
+
 A command-line tool designed to efficiently download, process, and consolidate data from the [GDELT Project](https://www.gdeltproject.org/). It leverages PySpark to handle large volumes of data and transforms it into local, query-friendly formats like CSV and Parquet.
 
 This tool was created to simplify the initial data engineering phase of GDELT analysis, allowing researchers and data scientists to focus on generating insights rather than data wrangling.

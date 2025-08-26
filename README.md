@@ -160,15 +160,15 @@ This is a foundational test suite, and the goal is to expand coverage in the fut
 ```
 .
 ├── DataExtractionTool
-│   ├── GDELT_Extractor.py                                 # Main file.
-│   ├── test                                               # Pytest folder.
+│   ├── GDELT_Extractor.py               # Main file.
+│   ├── test                             # Pytest folder.
 │   ├── __init__.py
 │   │   ├── test_data
 │   │   │   ├── sample_gdelt_data.CSV
 │   │   │   ├── sample_gdelt_lookup.txt
 │   │   │   └── sample_manual_lookup.csv
 │   │   └── test_spark_transforms.py
-│   └── utils                                              # Function modules.
+│   └── utils                            # Function modules.
 │       ├── __init__.py
 │       ├── downloader.py
 │       ├── file_handler.py
@@ -178,17 +178,17 @@ This is a foundational test suite, and the goal is to expand coverage in the fut
 │       ├── spark_manager.py
 │       └── spark_transforms.py
 │ 
-├── assets                                                  # Files used for filtering and mapping.
+├── assets                               # Files used for filtering and mapping.
 │   ├── MASTER-GDELTDOMAINSBYCOUNTRY-MAY2018.txt
 │   ├── cameo_dictionary
 │   ├── cameo_dictionary:Zone.Identifier
 │   ├── extended_lookup.csv
 │   └── gdelt_headers.xlsx
-├── data
+├── data                                  #  These data folders will be automatically created when you run the application.                                       
 │   ├── gdelt_downloaded_data
 │   └── merged_parquet
-├── config.py                                               # User-configurable settings (Recommended edit for specific actor filtering)
-├── pyproject.toml                                          # Project definition and dependencies
+├── config.py                             # User-configurable settings (Recommended edit for specific actor filtering)
+├── pyproject.toml                        # Project definition and dependencies
 └── README.md                    
 ```
 

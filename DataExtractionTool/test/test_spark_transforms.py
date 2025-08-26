@@ -4,7 +4,8 @@ import shutil
 import config
 from pyspark.sql import SparkSession
 from pyspark.sql import DataFrame
-from pyspark.sql import functions as F
+from typing import Union
+from datetime import date
 from pathlib import Path
 
 from DataExtractionTool.utils.spark_transforms import (

@@ -1,5 +1,4 @@
 name: Run Python Tests (CI)
-
 # Run this workflow on every push and pull request to the main branch
 on:
   push:

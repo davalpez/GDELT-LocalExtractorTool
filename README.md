@@ -24,7 +24,7 @@ This tool was created to simplify the initial data engineering phase of GDELT an
 
 -   **Automated Downloads:** Fetch GDELT 1.0 data files for a specified date range.
 -   **Parallel Processing:** Utilizes a local PySpark session to process files in parallel, significantly speeding up data transformation.
--   **Flexible Output:** Save processed data as consolidated CSV or highly efficient Parquet files.
+-   **Flexible Output:** Save processed data as consolidated CSV or highly efficient Parquet files ( Save up to 70% of space compared to Unzipped files!).
 -   **Configurable:** Easily customize output paths, data columns, and processing settings through a simple configuration file.
 -   **Command-Line Interface:** Easy to use and integrate into automated data pipelines.
 

@@ -148,43 +148,36 @@ This is a foundational test suite, and the goal is to expand coverage in the fut
 ```
 .
 ├── DataExtractionTool
-├── GDELT_Extractor.py
-├── __pycache__
-│   └── GDELT_Extractor.cpython-312.pyc
-├── test
+│   ├── GDELT_Extractor.py                                 # Main file.
+│   ├── test                                               # Pytest folder.
 │   ├── __init__.py
-│   ├── artifacts
-│   ├── test_data
-│   │   ├── sample_gdelt_data.CSV
-│   │   ├── sample_gdelt_lookup.txt
-│   │   └── sample_manual_lookup.csv
-│   └── test_spark_transforms.py
-└── utils
-    ├── __init__.py
-    ├── downloader.py
-    ├── file_handler.py
-    ├── input_validation.py
-    ├── logger_config.py
-    ├── schema.py
-    ├── spark_manager.py
-    └── spark_transforms.py
-
-├── assets
+│   │   ├── test_data
+│   │   │   ├── sample_gdelt_data.CSV
+│   │   │   ├── sample_gdelt_lookup.txt
+│   │   │   └── sample_manual_lookup.csv
+│   │   └── test_spark_transforms.py
+│   └── utils                                              # Function modules.
+│       ├── __init__.py
+│       ├── downloader.py
+│       ├── file_handler.py
+│       ├── input_validation.py
+│       ├── logger_config.py
+│       ├── schema.py
+│       ├── spark_manager.py
+│       └── spark_transforms.py
+│ 
+├── assets                                                  # Files used for filtering and mapping.
 │   ├── MASTER-GDELTDOMAINSBYCOUNTRY-MAY2018.txt
 │   ├── cameo_dictionary
 │   ├── cameo_dictionary:Zone.Identifier
 │   ├── extended_lookup.csv
 │   └── gdelt_headers.xlsx
-├── config.py
 ├── data
 │   ├── gdelt_downloaded_data
 │   └── merged_parquet
-├── pyproject.toml
-├── test.ipynb
-├── config.py                    # User-configurable settings (MUST EDIT)
-├── pyproject.toml               # Project definition and dependencies
-├── .gitignore                   # Files and folders to ignore in Git
-└── README.md                    # This file
+├── config.py                                               # User-configurable settings (Recommended edit for specific actor filtering)
+├── pyproject.toml                                          # Project definition and dependencies
+└── README.md                    
 ```
 
 ## Contributing
@@ -194,7 +187,6 @@ Contributions are welcome! If you have suggestions for improvements or find a bu
 ## License
 
 This project is licensed under the MIT License. See the `LICENSE` file for details.
-```
 
 
 

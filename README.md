@@ -55,7 +55,7 @@ Follow these steps to set up the tool and its environment.
 ### 1. Configuration
 
 Before the first run, you must configure your settings in the `config.py` file located in the project's root directory. This file controls where data is downloaded and stored, and which data columns you wish to keep.
-As a default, the folders for downloaded data are automatically created in this repository folder. The only parameters adviced to be changed are FILTER_TERMS and FILTER_TERMS_COLUMNS if the user wishes to filder the content from GDELT towards a specific subject.
+As a default, the folders for downloaded data are automatically created in this repository folder. The only parameters adviced to be changed are `FILTER_TERMS` and `FILTER_TERMS_COLUMNS` if the user wishes to filder the content from GDELT towards a specific subject.
 
 In /GDELTLocalExtractor/DataExtractionTool/utils/schema.py, there is a list of columns I have decided to use/prioritize when filtering columns, which can be also changed/modified by the user.
 
